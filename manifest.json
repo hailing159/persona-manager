@@ -1,0 +1,11 @@
+{
+  "display_name": "人设导入导出",
+  "loading_order": 12,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Claude",
+  "version": "1.0.0",
+  "homePage": ""
+}
