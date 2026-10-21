@@ -215,12 +215,20 @@
   }
 
   // ---------- 状态 ----------
+  const logs = [];
   let root = null;
   let items = [];           // {file, name, description}
   let selected = new Set();
   let searchText = '';
   let statusTimer = null;
   let busy = false;
+
+  function log(msg) {
+    logs.push(new Date().toLocaleTimeString() + ' ' + msg);
+    while (logs.length > 60) logs.shift();
+    const el = root && root.querySelector('#pm-log');
+    if (el) el.textContent = logs.join('\n');
+  }
 
   function status(text, bad, sticky) {
     const el = root && root.querySelector('#pm-status');
@@ -245,7 +253,9 @@
         description: String((pu.persona_descriptions[f] || {}).description || ''),
       }));
       selected = new Set(Array.from(selected).filter(f => files.includes(f)));
+      log(`读取到 ${items.length} 个人设（酒馆设置中 ${Object.keys(pu.personas).length} 个，服务器头像 ${server ? server.size : '未知'} 个）`);
     } catch (e) {
+      log('读取人设失败：' + e.message);
       items = [];
       render();
       status(e.message, true, true);
@@ -270,9 +280,19 @@
     m.querySelector('.pm-x').onclick = close;
     m.querySelector('.pm-cancel').onclick = close;
     m.onclick = e => { if (e.target === m) close(); };
-    m.querySelector('.pm-ok').onclick = async () => {
-      const r = await done(m);
-      if (r !== false) close();
+    const okBtn = m.querySelector('.pm-ok');
+    okBtn.onclick = async () => {
+      okBtn.disabled = true;
+      try {
+        const r = await done(m);
+        if (r !== false) close();
+      } catch (err) {
+        log('弹窗操作出错：' + (err && err.message));
+        const box = m.querySelector('.pm-modal-content');
+        if (box) box.insertAdjacentHTML('beforeend', `<p class="pm-err">出错了：${esc(err && err.message)}</p>`);
+      } finally {
+        if (okBtn.isConnected) okBtn.disabled = false;
+      }
     };
     return m;
   }
@@ -298,18 +318,27 @@
         const overwrite = mm.querySelector('#pm-overwrite').checked;
         if (busy) return false;
         busy = true;
+        const box = mm.querySelector('.pm-modal-content');
+        box.insertAdjacentHTML('afterbegin', '<p class="pm-progress">准备导入…</p>');
+        const prog = box.querySelector('.pm-progress');
+        log(`开始导入 ${picked.length} 个：` + picked.map(p => p.nickname).join('、'));
+        let res;
         try {
-          const res = await importEntries(picked, overwrite, (n, total, name) => status(`导入中 ${n}/${total}：${name}`, false, true));
-          await reload();
-          let msg = `导入完成：成功 ${res.ok} 个`;
-          if (res.renamed) msg += `，其中 ${res.renamed} 个同名已自动改名`;
-          if (res.skipped.length) msg += `，跳过 ${res.skipped.length} 个`;
-          if (res.failed.length) msg += `，失败 ${res.failed.length} 个`;
-          status(msg + '。若酒馆人设列表没更新，请刷新页面', res.failed.length > 0);
-          if (res.failed.length) console.warn(`[${EXT}] 失败详情`, res.failed);
-        } catch (err) {
-          status('导入失败：' + err.message, true);
+          res = await importEntries(picked, overwrite, (n, total, name) => { prog.textContent = `导入中 ${n}/${total}：${name}`; });
         } finally { busy = false; }
+        await reload();
+        const lines = [`<p><b>成功 ${res.ok} 个</b>（共选 ${picked.length} 个）</p>`];
+        if (res.renamed) lines.push(`<p>其中 ${res.renamed} 个因为同名已自动改名新增</p>`);
+        if (res.skipped.length) lines.push('<p class="pm-err">跳过：<br>' + res.skipped.map(esc).join('<br>') + '</p>');
+        if (res.failed.length) lines.push('<p class="pm-err">失败：<br>' + res.failed.map(esc).join('<br>') + '</p>');
+        lines.push('<p>若酒馆的人设列表没有更新，请刷新页面。</p>');
+        log(`导入结束：成功 ${res.ok}，跳过 ${res.skipped.length}，失败 ${res.failed.length}`);
+        res.failed.forEach(f => log('失败详情：' + f));
+        box.innerHTML = lines.join('');
+        const foot = mm.querySelector('footer');
+        foot.innerHTML = '<button type="button" class="pm-btn pm-primary pm-done">关闭</button>';
+        foot.querySelector('.pm-done').onclick = () => mm.remove();
+        return false;
       },
       '导入'
     );
@@ -352,7 +381,8 @@
       ).join('') +
       (!items.length ? '<div class="pm-empty">没有读取到人设</div>' : '') +
       (items.length && !list.length ? '<div class="pm-empty">没有匹配的人设</div>' : '') +
-      `</div><div id="pm-status"></div></div>`;
+      `</div><div id="pm-status"></div>` +
+      `<details class="pm-details"><summary>运行日志（出问题时把这里的内容发给我）</summary><pre id="pm-log">${esc(logs.join('\n'))}</pre></details></div>`;
 
     root.querySelectorAll('[data-a]').forEach(b => { b.onclick = () => action(b.dataset.a); });
     root.querySelectorAll('[data-sel]').forEach(cb => {
@@ -378,11 +408,15 @@
       e.target.value = '';
       if (!file) return;
       try {
+        log(`选择了文件：${file.name}（${Math.round(file.size / 1024)} KB）`);
         const entries = parseImport(await file.text());
-        try { window.__pmServerSet = new Set(await listServerAvatars()); } catch (err) { window.__pmServerSet = new Set(); }
+        log(`文件里识别到 ${entries.length} 个人设：` + entries.map(x => `${x.nickname}${x.image ? '' : '（无图）'}`).join('、'));
+        try { window.__pmServerSet = new Set(await listServerAvatars()); } catch (err) { window.__pmServerSet = new Set(); log('获取服务器头像列表失败：' + err.message); }
         importModal(entries, file.name);
       } catch (err) {
-        status('读取失败：' + err.message, true);
+        log('读取文件失败：' + err.message);
+        const m = showModal('读取失败', `<p class="pm-err">${esc(err.message)}</p>`, () => true, '好的');
+        m.querySelector('.pm-cancel').style.display = 'none';
       }
     };
   }
@@ -439,6 +473,7 @@
     if (!target) return false;
     target.appendChild(createPanel());
     console.log(`[${EXT}] 面板已挂载`);
+    log('面板已挂载到：' + (target.id || target.className));
     reload();
     return true;
   }
@@ -451,6 +486,14 @@
       if (mount() || tries > 120) clearInterval(t);
     }, 1000);
   }
+
+  window.addEventListener('error', e => {
+    if (String(e.filename || '').includes(EXT)) log('脚本错误：' + e.message);
+  });
+  window.addEventListener('unhandledrejection', e => {
+    const msg = String((e.reason && e.reason.message) || e.reason || '');
+    if (msg) log('未处理的异常：' + msg);
+  });
 
   window.personaManager = { parseImport, importEntries, buildExport, safeFileName };
 
