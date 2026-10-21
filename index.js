@@ -295,7 +295,7 @@
     box.innerHTML = `<div class="pm-import"><div class="${isErr ? 'pm-err' : ''}">${html}</div>` +
       `<div class="pm-import-actions"><button class="pm-btn pm-primary" id="pm-notice-close">关闭</button></div></div>`;
     box.querySelector('#pm-notice-close').onclick = closeImportBox;
-    box.scrollIntoView({ block: 'start' });
+    box.scrollIntoView({ block: 'nearest' });
   }
 
   function openImport(entries, fileName) {
@@ -374,7 +374,7 @@
       }
       if (k < imgs.length && imgs[0].isConnected) setTimeout(next, 80);
     })();
-    box.scrollIntoView({ block: 'start' });
+    box.scrollIntoView({ block: 'nearest' });
   }
 
   // ---------- 渲染 ----------
