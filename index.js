@@ -36,6 +36,14 @@
     return n + '.png';
   }
 
+  function fetchT(url, opt, ms) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms || 30000);
+    return fetch(url, Object.assign({}, opt, { signal: ctrl.signal }))
+      .catch(e => { throw new Error(e && e.name === 'AbortError' ? '请求超时' : (e && e.message) || '网络错误'); })
+      .finally(() => clearTimeout(t));
+  }
+
   // ---------- 酒馆接口（优先 getContext，失败再动态 import） ----------
   let apiCache = null;
   async function getApi() {
@@ -73,7 +81,7 @@
 
   async function listServerAvatars() {
     const api = await getApi();
-    const r = await fetch('/api/avatars/get', { method: 'POST', headers: api.getRequestHeaders(), body: '{}' });
+    const r = await fetchT('/api/avatars/get', { method: 'POST', headers: api.getRequestHeaders(), body: '{}' }, 15000);
     if (!r.ok) throw new Error('获取头像列表失败 (' + r.status + ')');
     const list = await r.json();
     return Array.isArray(list) ? list : [];
@@ -86,8 +94,12 @@
     const fd = new FormData();
     fd.append('avatar', new File([blob], fileName, { type: blob.type || 'image/png' }));
     fd.append('overwrite_name', fileName);
-    const r = await fetch('/api/avatars/upload', { method: 'POST', headers, body: fd });
-    if (!r.ok) throw new Error('上传失败 (' + r.status + ')');
+    const r = await fetchT('/api/avatars/upload', { method: 'POST', headers, body: fd }, 60000);
+    if (!r.ok) {
+      let detail = '';
+      try { detail = (await r.text()).slice(0, 120); } catch (e) { /* ignore */ }
+      throw new Error('上传失败 (' + r.status + ') ' + detail);
+    }
     return fileName;
   }
 
@@ -148,7 +160,9 @@
   async function importEntries(entries, overwrite, onProgress) {
     const api = await getApi();
     const pu = api.power_user;
+    log('正在获取服务器头像列表…');
     const server = new Set(await listServerAvatars());
+    log(`服务器已有头像 ${server.size} 个，开始逐个导入`);
     const result = { ok: 0, renamed: 0, skipped: [], failed: [] };
     let seq = 0;
 
@@ -170,6 +184,7 @@
           server.add(target);
         } else if (!server.has(target)) {
           result.skipped.push(e.nickname + '（没有图片）');
+          log(`跳过 ${e.nickname}：没有图片`);
           continue;
         }
 
@@ -185,10 +200,12 @@
         pu.persona_descriptions[target] = next;
         pu.personas[target] = e.nickname;
         result.ok++;
+        log(`✔ ${e.nickname} → ${target}`);
         await sleep(30);
       } catch (err) {
         console.error(`[${EXT}] 导入失败`, e.file, err);
         result.failed.push(e.nickname + '：' + err.message);
+        log(`✘ ${e.nickname}（${e.file}）：${err.message}`);
       }
     }
     api.saveSettingsDebounced();
@@ -298,13 +315,12 @@
   }
 
   function importModal(entries, fileName) {
-    const server = window.__pmServerSet || new Set();
     const rows = entries.map((e, i) =>
       `<label class="pm-row"><input type="checkbox" data-i="${i}" checked>` +
       `<img class="pm-thumb" data-i="${i}" alt="">` +
       `<div class="pm-row-info"><b>${esc(e.nickname)}</b>` +
       `<span>${esc(e.description.slice(0, 60) || '（无描述）')}</span>` +
-      `<small>${e.image ? '含图片' : '无图片'} · ${esc(e.file)}${server.has(safeFileName(e.file)) ? ' · 同名已存在' : ''}</small></div></label>`
+      `<small>${e.image ? '含图片' : '无图片'} · ${esc(e.file)}</small></div></label>`
     ).join('');
     const m = showModal(
       '导入人设：' + fileName,
@@ -342,11 +358,24 @@
       },
       '导入'
     );
-    // 图片预览用 DOM 赋值，避免超大字符串塞进 innerHTML
-    m.querySelectorAll('img.pm-thumb').forEach(img => {
-      const e = entries[Number(img.dataset.i)];
-      if (e.image) img.src = e.image; else img.style.visibility = 'hidden';
-    });
+    // 图片预览分批赋值，避免几十张大图一次性卡死手机
+    const imgs = Array.from(m.querySelectorAll('img.pm-thumb'));
+    let k = 0;
+    (function next() {
+      const end = Math.min(k + 6, imgs.length);
+      for (; k < end; k++) {
+        const e = entries[Number(imgs[k].dataset.i)];
+        if (e.image) imgs[k].src = e.image; else imgs[k].style.visibility = 'hidden';
+      }
+      if (k < imgs.length && imgs[0].isConnected) setTimeout(next, 80);
+    })();
+    // 后台标注同名（拿不到也不影响导入）
+    listServerAvatars().then(list => {
+      const set = new Set(list);
+      m.querySelectorAll('.pm-row small').forEach((el, i) => {
+        if (set.has(safeFileName(entries[i].file))) el.textContent += ' · 同名已存在';
+      });
+    }).catch(err => log('标注同名失败（不影响导入）：' + err.message));
     m.querySelector('#pm-all').onchange = ev => {
       m.querySelectorAll('input[data-i]').forEach(cb => { cb.checked = ev.target.checked; });
     };
@@ -411,8 +440,8 @@
         log(`选择了文件：${file.name}（${Math.round(file.size / 1024)} KB）`);
         const entries = parseImport(await file.text());
         log(`文件里识别到 ${entries.length} 个人设：` + entries.map(x => `${x.nickname}${x.image ? '' : '（无图）'}`).join('、'));
-        try { window.__pmServerSet = new Set(await listServerAvatars()); } catch (err) { window.__pmServerSet = new Set(); log('获取服务器头像列表失败：' + err.message); }
         importModal(entries, file.name);
+        log('预览窗口已打开，请勾选后点「导入」');
       } catch (err) {
         log('读取文件失败：' + err.message);
         const m = showModal('读取失败', `<p class="pm-err">${esc(err.message)}</p>`, () => true, '好的');
