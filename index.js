@@ -281,40 +281,27 @@
     render();
   }
 
-  // ---------- 弹窗 ----------
-  function showModal(title, html, done, label) {
-    document.querySelector('#pm-modal')?.remove();
-    const m = document.createElement('div');
-    m.id = 'pm-modal';
-    m.className = 'pm-modal-bg';
-    m.innerHTML =
-      `<section class="pm-modal"><header>${esc(title)}<button type="button" class="pm-x">×</button></header>` +
-      `<div class="pm-modal-content">${html}</div>` +
-      `<footer><button type="button" class="pm-btn pm-light pm-cancel">取消</button>` +
-      `<button type="button" class="pm-btn pm-primary pm-ok">${esc(label || '确定')}</button></footer></section>`;
-    document.body.appendChild(m);
-    const close = () => m.remove();
-    m.querySelector('.pm-x').onclick = close;
-    m.querySelector('.pm-cancel').onclick = close;
-    m.onclick = e => { if (e.target === m) close(); };
-    const okBtn = m.querySelector('.pm-ok');
-    okBtn.onclick = async () => {
-      okBtn.disabled = true;
-      try {
-        const r = await done(m);
-        if (r !== false) close();
-      } catch (err) {
-        log('弹窗操作出错：' + (err && err.message));
-        const box = m.querySelector('.pm-modal-content');
-        if (box) box.insertAdjacentHTML('beforeend', `<p class="pm-err">出错了：${esc(err && err.message)}</p>`);
-      } finally {
-        if (okBtn.isConnected) okBtn.disabled = false;
-      }
-    };
-    return m;
+  // ---------- 导入预览（直接显示在面板里，不用弹窗，手机上不会跑出屏幕） ----------
+  function importBox() { return root && root.querySelector('#pm-import-box'); }
+
+  function closeImportBox() {
+    const box = importBox();
+    if (box) box.innerHTML = '';
   }
 
-  function importModal(entries, fileName) {
+  function showNotice(html, isErr) {
+    const box = importBox();
+    if (!box) return;
+    box.innerHTML = `<div class="pm-import"><div class="${isErr ? 'pm-err' : ''}">${html}</div>` +
+      `<div class="pm-import-actions"><button class="pm-btn pm-primary" id="pm-notice-close">关闭</button></div></div>`;
+    box.querySelector('#pm-notice-close').onclick = closeImportBox;
+    box.scrollIntoView({ block: 'start' });
+  }
+
+  function openImport(entries, fileName) {
+    const box = importBox();
+    if (!box) return;
+    const withImg = entries.filter(e => e.image).length;
     const rows = entries.map((e, i) =>
       `<label class="pm-row"><input type="checkbox" data-i="${i}" checked>` +
       `<img class="pm-thumb" data-i="${i}" alt="">` +
@@ -322,44 +309,62 @@
       `<span>${esc(e.description.slice(0, 60) || '（无描述）')}</span>` +
       `<small>${e.image ? '含图片' : '无图片'} · ${esc(e.file)}</small></div></label>`
     ).join('');
-    const m = showModal(
-      '导入人设：' + fileName,
-      `<p>共 ${entries.length} 个人设。图片会一起上传到酒馆的头像库。</p>` +
-      `<label class="pm-check"><input type="checkbox" id="pm-all" checked> 全选</label>` +
-      `<div class="pm-rows">${rows}</div>` +
-      `<label class="pm-check"><input type="checkbox" id="pm-overwrite"> 覆盖同名人设（不勾选则同名的自动改名新增）</label>`,
-      async mm => {
-        const picked = Array.from(mm.querySelectorAll('input[data-i]:checked')).map(cb => entries[Number(cb.dataset.i)]);
-        if (!picked.length) { status('请至少选一个', true); return false; }
-        const overwrite = mm.querySelector('#pm-overwrite').checked;
-        if (busy) return false;
-        busy = true;
-        const box = mm.querySelector('.pm-modal-content');
-        box.insertAdjacentHTML('afterbegin', '<p class="pm-progress">准备导入…</p>');
-        const prog = box.querySelector('.pm-progress');
-        log(`开始导入 ${picked.length} 个：` + picked.map(p => p.nickname).join('、'));
-        let res;
-        try {
-          res = await importEntries(picked, overwrite, (n, total, name) => { prog.textContent = `导入中 ${n}/${total}：${name}`; });
-        } finally { busy = false; }
-        await reload();
-        const lines = [`<p><b>成功 ${res.ok} 个</b>（共选 ${picked.length} 个）</p>`];
-        if (res.renamed) lines.push(`<p>其中 ${res.renamed} 个因为同名已自动改名新增</p>`);
-        if (res.skipped.length) lines.push('<p class="pm-err">跳过：<br>' + res.skipped.map(esc).join('<br>') + '</p>');
-        if (res.failed.length) lines.push('<p class="pm-err">失败：<br>' + res.failed.map(esc).join('<br>') + '</p>');
-        lines.push('<p>若酒馆的人设列表没有更新，请刷新页面。</p>');
-        log(`导入结束：成功 ${res.ok}，跳过 ${res.skipped.length}，失败 ${res.failed.length}`);
-        res.failed.forEach(f => log('失败详情：' + f));
-        box.innerHTML = lines.join('');
-        const foot = mm.querySelector('footer');
-        foot.innerHTML = '<button type="button" class="pm-btn pm-primary pm-done">关闭</button>';
-        foot.querySelector('.pm-done').onclick = () => mm.remove();
-        return false;
-      },
-      '导入'
-    );
-    // 图片预览分批赋值，避免几十张大图一次性卡死手机
-    const imgs = Array.from(m.querySelectorAll('img.pm-thumb'));
+    box.innerHTML =
+      `<div class="pm-import">` +
+      `<div class="pm-import-head"><b>导入预览：${esc(fileName)}</b><small>共 ${entries.length} 个人设，含图片 ${withImg} 个</small></div>` +
+      `<div class="pm-import-actions"><button class="pm-btn pm-primary" id="pm-do-import">导入选中（${entries.length}）</button>` +
+      `<button class="pm-btn pm-light" id="pm-cancel-import">取消</button></div>` +
+      `<div id="pm-import-progress" class="pm-progress"></div>` +
+      `<div class="pm-import-opts"><label class="pm-check"><input type="checkbox" id="pm-all" checked> 全选</label>` +
+      `<label class="pm-check"><input type="checkbox" id="pm-overwrite"> 覆盖同名人设（不勾选则同名自动改名新增）</label></div>` +
+      `<div class="pm-rows">${rows}</div></div>`;
+
+    const doBtn = box.querySelector('#pm-do-import');
+    const prog = box.querySelector('#pm-import-progress');
+    const updateCount = () => {
+      const n = box.querySelectorAll('input[data-i]:checked').length;
+      doBtn.textContent = `导入选中（${n}）`;
+      doBtn.disabled = n === 0;
+    };
+    box.querySelectorAll('input[data-i]').forEach(cb => { cb.onchange = updateCount; });
+    box.querySelector('#pm-all').onchange = ev => {
+      box.querySelectorAll('input[data-i]').forEach(cb => { cb.checked = ev.target.checked; });
+      updateCount();
+    };
+    box.querySelector('#pm-cancel-import').onclick = () => { if (!busy) closeImportBox(); };
+
+    doBtn.onclick = async () => {
+      if (busy) return;
+      const picked = Array.from(box.querySelectorAll('input[data-i]:checked')).map(cb => entries[Number(cb.dataset.i)]);
+      if (!picked.length) return;
+      const overwrite = box.querySelector('#pm-overwrite').checked;
+      busy = true;
+      doBtn.disabled = true;
+      log(`开始导入 ${picked.length} 个`);
+      let res;
+      try {
+        res = await importEntries(picked, overwrite, (n, total, name) => { prog.textContent = `导入中 ${n}/${total}：${name}`; });
+      } catch (err) {
+        busy = false;
+        log('导入中断：' + err.message);
+        prog.textContent = '出错了：' + err.message;
+        prog.classList.add('pm-err');
+        doBtn.disabled = false;
+        return;
+      }
+      busy = false;
+      await reload();
+      const lines = [`<p><b>成功 ${res.ok} 个</b>（共选 ${picked.length} 个）</p>`];
+      if (res.renamed) lines.push(`<p>其中 ${res.renamed} 个因同名已自动改名新增</p>`);
+      if (res.skipped.length) lines.push('<p class="pm-err">跳过：<br>' + res.skipped.map(esc).join('<br>') + '</p>');
+      if (res.failed.length) lines.push('<p class="pm-err">失败：<br>' + res.failed.map(esc).join('<br>') + '</p>');
+      lines.push('<p>若酒馆自己的人设列表没有更新，请刷新页面。</p>');
+      log(`导入结束：成功 ${res.ok}，跳过 ${res.skipped.length}，失败 ${res.failed.length}`);
+      showNotice(lines.join(''), false);
+    };
+
+    // 缩略图分批加载，避免大图一次性卡住手机
+    const imgs = Array.from(box.querySelectorAll('img.pm-thumb'));
     let k = 0;
     (function next() {
       const end = Math.min(k + 6, imgs.length);
@@ -369,16 +374,7 @@
       }
       if (k < imgs.length && imgs[0].isConnected) setTimeout(next, 80);
     })();
-    // 后台标注同名（拿不到也不影响导入）
-    listServerAvatars().then(list => {
-      const set = new Set(list);
-      m.querySelectorAll('.pm-row small').forEach((el, i) => {
-        if (set.has(safeFileName(entries[i].file))) el.textContent += ' · 同名已存在';
-      });
-    }).catch(err => log('标注同名失败（不影响导入）：' + err.message));
-    m.querySelector('#pm-all').onchange = ev => {
-      m.querySelectorAll('input[data-i]').forEach(cb => { cb.checked = ev.target.checked; });
-    };
+    box.scrollIntoView({ block: 'start' });
   }
 
   // ---------- 渲染 ----------
@@ -392,7 +388,8 @@
     if (!root) return;
     const list = visibleItems();
     const allChecked = list.length > 0 && list.every(x => selected.has(x.file));
-    root.innerHTML =
+    const main = root.querySelector('#pm-main');
+    main.innerHTML =
       `<div class="pm-wrap">` +
       `<div class="pm-top"><div><b>人设导入导出</b><small>${items.length} 个人设 · 已选 ${selected.size} 个</small></div>` +
       `<button class="pm-btn pm-primary" data-a="import">导入文件</button></div>` +
@@ -440,12 +437,11 @@
         log(`选择了文件：${file.name}（${Math.round(file.size / 1024)} KB）`);
         const entries = parseImport(await file.text());
         log(`文件里识别到 ${entries.length} 个人设：` + entries.map(x => `${x.nickname}${x.image ? '' : '（无图）'}`).join('、'));
-        importModal(entries, file.name);
-        log('预览窗口已打开，请勾选后点「导入」');
+        openImport(entries, file.name);
+        log('导入预览已显示在面板顶部');
       } catch (err) {
         log('读取文件失败：' + err.message);
-        const m = showModal('读取失败', `<p class="pm-err">${esc(err.message)}</p>`, () => true, '好的');
-        m.querySelector('.pm-cancel').style.display = 'none';
+        showNotice('读取失败：' + esc(err.message), true);
       }
     };
   }
@@ -486,7 +482,7 @@
     panel.innerHTML =
       `<div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b>人设导入导出</b>` +
       `<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>` +
-      `<div class="inline-drawer-content"><div id="pm-manager-root"></div></div></div>`;
+      `<div class="inline-drawer-content"><div id="pm-manager-root"><div id="pm-import-box"></div><div id="pm-main"></div></div></div></div>`;
     root = panel.querySelector('#pm-manager-root');
     panel.querySelector('.inline-drawer-toggle').addEventListener('click', () => { reload(); });
     render();

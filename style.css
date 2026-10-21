@@ -42,3 +42,10 @@
 .pm-details{margin-top:8px;font-size:11px;opacity:.85}
 .pm-details summary{cursor:pointer;padding:4px 0}
 .pm-details pre{white-space:pre-wrap;word-break:break-all;max-height:180px;overflow:auto;margin:4px 0 0;padding:6px;border-radius:6px;background:rgba(127,127,127,.12);font-size:11px;line-height:1.5}
+.pm-import{border:1px solid var(--SmartThemeQuoteColor,#2879d0);border-radius:10px;padding:10px;margin-bottom:12px;background:var(--SmartThemeBlurTintColor,rgba(127,127,127,.06))}
+.pm-import-head{display:flex;flex-direction:column;gap:2px;word-break:break-all}
+.pm-import-head small{opacity:.65;font-size:11px}
+.pm-import-actions{display:flex;gap:8px;margin:8px 0}
+.pm-import-actions .pm-btn{flex:1}
+.pm-import-opts{display:flex;flex-direction:column;gap:6px;margin:6px 0 8px}
+.pm-import .pm-rows{max-height:50vh}
