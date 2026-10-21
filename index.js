@@ -391,7 +391,7 @@
     const main = root.querySelector('#pm-main');
     main.innerHTML =
       `<div class="pm-wrap">` +
-      `<div class="pm-top"><div><b>人设导入导出</b><small>${items.length} 个人设 · 已选 ${selected.size} 个</small></div>` +
+      `<div class="pm-top"><div><b>用户人设管理器</b><small>${items.length} 个人设 · 已选 ${selected.size} 个</small></div>` +
       `<button class="pm-btn pm-primary" data-a="import">导入文件</button></div>` +
       `<div class="pm-tools">` +
       `<button class="pm-btn pm-light" data-a="export">导出${selected.size ? '选中' : '全部'}（含图片）</button>` +
@@ -480,7 +480,7 @@
     const panel = document.createElement('div');
     panel.id = 'persona-manager-inline';
     panel.innerHTML =
-      `<div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b>人设导入导出</b>` +
+      `<div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b>用户人设管理器</b>` +
       `<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>` +
       `<div class="inline-drawer-content"><div id="pm-manager-root"><div id="pm-import-box"></div><div id="pm-main"></div></div></div></div>`;
     root = panel.querySelector('#pm-manager-root');
