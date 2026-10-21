@@ -36,7 +36,7 @@
 .pm-row-info span{font-size:11px;opacity:.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pm-row-info small{font-size:10px;opacity:.55;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pm-modal footer{display:flex;justify-content:flex-end;gap:7px;margin-top:12px}
-@media(min-width:700px){.pm-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
 .pm-err{color:#d9534f!important;opacity:1!important;word-break:break-all}
 .pm-progress{font-weight:600;opacity:1!important}
 .pm-details{margin-top:8px;font-size:11px;opacity:.85}
@@ -49,3 +49,16 @@
 .pm-import-actions .pm-btn{flex:1}
 .pm-import-opts{display:flex;flex-direction:column;gap:6px;margin:6px 0 8px}
 .pm-import .pm-rows{max-height:50vh}
+
+#persona-manager-inline,#persona-manager-inline *{box-sizing:border-box}
+#persona-manager-inline{width:100%;max-width:100%;overflow-x:hidden}
+#pm-manager-root,#pm-import-box,#pm-main,.pm-wrap,.pm-import{min-width:0;max-width:100%}
+.pm-import{overflow:hidden}
+.pm-rows{overflow-x:hidden}
+.pm-row{min-width:0;max-width:100%}
+.pm-row-info{flex:1 1 0;min-width:0}
+.pm-card{min-width:0;max-width:100%}
+.pm-card-info{flex:1 1 0;min-width:0}
+.pm-import-actions .pm-btn{min-width:0}
+.pm-list{grid-template-columns:minmax(0,1fr)}
+@media(min-width:700px){.pm-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
